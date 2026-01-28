@@ -1,0 +1,10 @@
+# Core requirements
+numpy>=1.20.0
+Pillow>=9.0.0
+
+# Medical imaging formats
+pydicom>=2.3.0    # For DICOM files
+nibabel>=4.0.0    # For NIfTI files
+
+# Packaging (optional - for building executables)
+# pyinstaller>=5.0.0

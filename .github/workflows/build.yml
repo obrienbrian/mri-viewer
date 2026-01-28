@@ -1,0 +1,141 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'  # Trigger on version tags like v1.0.0
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build with PyInstaller
+        run: |
+          pyinstaller mri_viewer.spec
+
+      - name: Create DMG
+        run: |
+          # Install create-dmg
+          brew install create-dmg
+
+          # Create DMG from the app bundle
+          create-dmg \
+            --volname "MRI Viewer" \
+            --window-pos 200 120 \
+            --window-size 600 400 \
+            --icon-size 100 \
+            --icon "MRI Viewer.app" 150 190 \
+            --app-drop-link 450 185 \
+            --no-internet-enable \
+            "MRI-Viewer-macOS.dmg" \
+            "dist/MRI Viewer.app" || true
+
+          # If create-dmg fails, fall back to hdiutil
+          if [ ! -f "MRI-Viewer-macOS.dmg" ]; then
+            hdiutil create -volname "MRI Viewer" -srcfolder "dist/MRI Viewer.app" -ov -format UDZO "MRI-Viewer-macOS.dmg"
+          fi
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-dmg
+          path: MRI-Viewer-macOS.dmg
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build with PyInstaller
+        run: |
+          pyinstaller mri_viewer.spec
+
+      - name: Create ZIP archive
+        run: |
+          Compress-Archive -Path "dist\MRI Viewer.exe" -DestinationPath "MRI-Viewer-Windows.zip"
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-zip
+          path: MRI-Viewer-Windows.zip
+
+  release:
+    needs: [build-macos, build-windows]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    steps:
+      - name: Download macOS artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-dmg
+
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-zip
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: MRI Viewer ${{ github.ref_name }}
+          body: |
+            ## MRI Viewer ${{ github.ref_name }}
+
+            A simple medical image viewer for DICOM and NIfTI files.
+
+            ### Downloads
+            | Platform | File | Instructions |
+            |----------|------|--------------|
+            | **macOS** | `MRI-Viewer-macOS.dmg` | Open DMG, drag to Applications |
+            | **Windows** | `MRI-Viewer-Windows.zip` | Extract ZIP, run `MRI Viewer.exe` |
+
+            ### First Launch (Important!)
+
+            **macOS** - Apple will show a security warning. To open:
+            1. Click **Done** (don't move to trash)
+            2. Go to **System Settings → Privacy & Security**
+            3. Scroll down and click **Open Anyway**
+
+            **Windows** - If SmartScreen appears, click "More info" → "Run anyway"
+
+            ### Features
+            - View DICOM folders and NIfTI files (.nii, .nii.gz)
+            - Three-plane view (Axial, Coronal, Sagittal)
+            - Adjustable window/level (brightness/contrast)
+            - Presets for Brain, Bone, Soft Tissue, Lung
+            - Auto-closes when you close the browser
+          files: |
+            MRI-Viewer-macOS.dmg
+            MRI-Viewer-Windows.zip
+          draft: false
+          prerelease: false
